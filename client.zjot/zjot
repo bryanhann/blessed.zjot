@@ -1,0 +1,2 @@
+#!/bin/bash
+${__BLESSED_DOT__} ${__BLESSED_CLIENT__}.main $* 
