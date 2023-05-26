@@ -1,123 +1,88 @@
-#!/bin/sh
-META_NAME=ZJOT_ACC
-APP=$(basename $0)
+#!/usr/bin/env python3
+from pathlib import Path
+import datetime
+import sys
+import string
+import os
 
-[ "$1" == "--acc" ] && {
-    ZJOT_ACC=$2
-    shift
-    shift
-}
+THIS = Path(__file__).absolute()
+ARGS = sys.argv[1:] + ['']*5
 
-DirPath () {
-    [ ! -z "$ZJOT_ACC" ] && local _path=${ZJOT_ACC}
-    [   -z "$ZJOT_ACC" ] && local _path=${HOME}/${META_NAME}
-    >/dev/null 2>/dev/null mkdir -p ${_path}
-    echo ${_path}
-}
+if ARGS[0] == '--acc':
+    ZJOT_ACC=Path(ARGS[1])
+    ARGS.pop(0)
+    ARGS.pop(0)
+else:
+    ZJOT_ACC = Path.home()/"ZJOT_ACC"
+ZJOT_ACC.is_dir() or ZJOT_ACC.mkdir()
 
-DirStat () {
-    [   -d $(DirPath) ] && return 0
-    [ ! -d $(DirPath) ] && return 1
-}
 
-DD_list () {
-    local DD=$(DirPath)
-    [ -d "$DD" ] || return 99
-    $(/bin/ls -1 ${DD}/*$1 > /dev/null 2> /dev/null) || return $?
-    /bin/ls -1 ${DD}/*$1
-}
+USAGE=f"""
+{THIS.name} -- a note taking and retrieval system.
 
-DD_first () {
-    for path in $( DD_list $* ); do
-        echo $path
-        break
-    done
-}
+USAGE:
+    {THIS.name} [options] SUBCOMMAND
+SUBCOMMANDS:
+    list       -- list jots
+    new        -- make new jot
+    join       -- cat all [.zjot] into a new [.zjots]
+    help       -- print this help message
+OPTIONS:
+    --acc PATH
+        Use PATH as the storage directory.
+ENVIRONMENT:
+    ZJOT_ACC
+        Path to the storage directory
+        If unset, use ZJOT_ACC=~/ZJOT_ACC
+        Override with '--acc' option
+"""
 
-main () {
-    local o=$1 ; shift
-    case .${o} in
-        .join)   join   $* ; return ;;
-        .report) report $* ; return ;;
-        .list)   list   $* ; return ;;
-        .new)    newjot $* ; return ;;
-        *)       usage  $* ; return ;;
-    esac
-}
+def main():
+    o=ARGS.pop(0)
+    if o == 'join': cmd_join()
+    elif o == 'list' : cmd_list()
+    elif o == 'new' : cmd_newjot()
+    else: print(USAGE)
 
-usage () {
-    echo "${APP} -- a note taking and retrieval system."
-    echo "usage:"
-    echo "    ${APP} [options] SUBCOMMAND"
-    echo "SUBCOMMANDS:"
-    echo "    report [q] -- check prerequisites"
-    echo "    list       -- list jots"
-    echo "    new        -- make new jot"
-    echo "    join       -- cat all [.zjot] into a new [.zjots]"
-    echo "    help       -- print this help message"
-    echo "OPTIONS:"
-    echo "    --acc PATH"
-    echo "        Use PATH as the storage directory."
-    echo "ENVIRONMENT:"
-    echo "    ZJOT_ACC"
-    echo "        Path to the storage directory"
-    echo "        If unset, use ZJOT_ACC=~/ZJOT_ACC"
-    echo "        Override with '--acc' opeion"
-}
+def cmd_list ():
+    for file in sorted(ZJOT_ACC.glob('*.zjot.acc')):
+        print( f"""---------------------- {file.name}""")
+        print( file.read_text() )
+    print( f"""---------------------- {ZJOT_ACC}""")
+    for file in sorted(ZJOT_ACC.glob('*.zjot')):
+        line = file.read_text().strip()
+        print( line )
 
-join () {
-    acc=$(DD_first .zjot)s
-    [ "$acc" = "s"  ] && return
-    [ -f "$acc"     ] && echo ${acc} already exists
-    [ -f "$acc"     ] && return
-    for zjot in $(DD_list .zjot); do
-        cat $zjot >> $acc
-        rm $zjot
-    done
-}
+def cmd_newjot ():
+    now = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
+    left = (' '.join(ARGS)).strip()
 
-report () {
-    DirStat && {
-        echo "${APP}:"
-        echo "        Using [\$$META_NAME] == [$(DirPath)]"
-    } || {
-        echo "${APP}:"
-        echo "        Runtime Error."
-        echo "        Using [\$$META_NAME] == [$(DirPath)]"
-        echo "        But no directory could be created at this path."
-    }
-}
+    cmd_list()
+    print (f">>>>>>>>>>>>>>>>>>>>>> {left} |" )
+    right = input().strip()
 
-list () {
-    echo "# $(DirPath)"
-    dump () { echo "----------------------" $(basename $1); cat $1; }
-    DirStat -v || return
-    for path in $( DD_list acc    ); do dump $path; done
-    for path in $( DD_list .zjots ); do dump $path; done
-    echo "---------------------- zjot"
-    for path in $(DD_list .zjot   ); do cat  $path; done
-}
+    if not (left or right):
+        exit( 'no jot entered' )
+    if False in [ ch in string.printable for ch in left + right ]:
+        exit( 'cannot jot line with unprintable characters:' )
 
-newjot () {
-    DirStat || report
-    DirStat || return
-    list
+    line=f"{now} [zjot] {left} | {right}"
+    (ZJOT_ACC/f"{now}.zjot").write_text(line)
+    cmd_list()
 
-    acc="$*"
-    printf ">>>>>>>>>>>>>>>>>>>>>> ${acc} | "
-    read jot
+def cmd_join ():
+    files = list(sorted(ZJOT_ACC.glob('*.zjot')))
+    lines = list(map(text4zjot, files))
+    block = ''.join(lines)
+    first = files[0]
+    join_file = Path(f"{first}.acc")
+    join_file.write_text(block)
+    for file in files:
+        os.remove(file)
 
-    [ ! "${jot}" = "" ] && jot="| ${jot}"
-    [ ! "${acc}" = "" ] && jot="${acc} ${jot}"
-    [   "${jot}" = "" ] && return
+def text4zjot(zjot):
+    assert zjot.name.endswith('.zjot')
+    return zjot.read_text().strip()+'\n'
 
-    now=$(date "+%Y%m%dT%H%M%S")
-    log=$(DirPath)/${now}.zjot
-    line="${now} [zjot] ${jot}"
-    echo "${line}" > ${log}
-
-    echo
-    list
-}
-
-main $*
+if __name__=='__main__':
+    main()
